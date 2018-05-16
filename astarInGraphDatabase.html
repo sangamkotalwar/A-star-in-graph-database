@@ -1,0 +1,185 @@
+<!doctype html>
+<html>
+<head>
+    <title>A star with neo4j</title>
+    <style type="text/css">
+	.topnav {
+    background-color: #333;
+    overflow: hidden;
+	 text-align: center;
+}
+
+/* Style the links inside the navigation bar */
+.topnav a {
+    float: middle;
+    color: #f2f2f2;
+    text-align: center;
+    padding: 14px 16px;
+    text-decoration: none;
+    font-size: 25px;
+}
+
+/* Change the color of links on hover */
+.topnav a:hover {
+    background-color: #ddd;
+    color: black;
+}
+
+
+        html, body {
+            background: radial-gradient(#fff, #aaa);
+  background-size: 100vw 100vh; 
+  padding-behind: 40vh;
+        }
+		
+		input[type=text] {
+		margin:2em;
+    background-color: #66979F;
+    color: white;
+	font-size:16px;
+  font-weight: bold;
+  line-height: 1.4;
+  border: 2px blue;
+    border-radius: 4px;
+}
+		input[type=submit] {
+		margin:2em;
+  background-color: #0693cd;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #fff;
+  font-size:16px;
+  font-weight: bold;
+  line-height: 1;
+  padding: 10px;
+  width: 120px
+}
+ #viz {
+			background-image: url("neo4j_logo.png");
+			 background-size: 20% 15%;
+			background-repeat: no-repeat;
+			background-position: center top; 
+            width: 900px;
+            height: 700px;
+            border: 1px solid darkblue;
+            font: 22pt arial;
+        }
+    </style>
+
+    <!-- FIXME: load from dist -->
+ <script src="https://rawgit.com/neo4j-contrib/neovis.js/master/dist/neovis.js"></script>
+    <script
+            src="https://code.jquery.com/jquery-3.2.1.min.js"
+            integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4="
+            crossorigin="anonymous"></script>
+
+    <script type="text/javascript">
+        // define config car
+        // instantiate nodevis object
+        // draw
+        var viz;
+        function draw() {
+            var config = {
+                container_id: "viz",
+                server_url: "bolt://localhost:7687",
+                server_user: "neo4j",
+                server_password: "qwerty",
+                labels: {
+                   // "Character": "name",
+                    "City": {
+                        "caption": "name",
+                         "size": "population"
+                    }
+                },
+                relationships: {
+                    "LINK": {
+                        "thickness": "distance",
+                        "caption": false
+                    }
+                },
+                /* 
+LOAD CSV WITH HEADERS FROM 
+"https://raw.githubusercontent.com/geoiq/acetate/master/places/Europe-z4-z6.txt"
+as row FIELDTERMINATOR "\t"
+MERGE (city:City{name: row.name})
+ON CREATE SET city.population = toINT(row.population), city.latitude = toFloat(row.latitude), city.longitude = toFloat(row.longitude)
+MERGE (country:Country{code: row.`country code`})
+MERGE (city)-[:IS_IN]->(country)
+
+WITH 250 as distanceInKm
+MATCH (c1:City),(c2:City)
+WHERE id(c1) < id(c2)
+WITH c1,c2,
+distance(point({longitude:c1.longitude,latitude:c1.latitude}), 
+         point({longitude:c2.longitude,latitude:c2.latitude})) as distance
+WHERE distance < (distanceInKm * 1000) 
+MERGE (c1)-[l:LINK]->(c2)
+ON CREATE SET l.distance = distance */
+                initial_cypher: "MATCH (start:City{name:'Milan'}),(end:City{name:'Amsterdam'}) " +
+                                "CALL algo.shortestPath.astar.stream(start, end, 'distance', " +
+                                "'latitude','longitude',{ " +
+                                "nodeQuery:'City',relationshipQuery:'LINK',direction:'BOTH'}) " +
+                                "YIELD nodeId, cost " +
+                                "MATCH (n) where id(n)=nodeId " +
+                                "WITH collect(nodeId) as nodes " +
+                                "UNWIND range(0, length(nodes)-2) as index " +
+                                "MATCH p=(c1:City)-[:LINK]-(c2:City) " +
+                                "WHERE id(c1)=nodes[index] AND id(c2)=nodes[index + 1] " +
+                                "RETURN p"
+            };
+            viz = new NeoVis.default(config);
+            viz.render();
+            console.log(viz);
+        }
+    </script>
+</head>
+<body onload="draw()">
+
+<div class="topnav">
+  <a  href="#home">A-Star Graph Search</a>
+</div>
+
+<center>
+
+	<div id="viz">
+	
+	</div>
+
+Cypher query: <!-- <textarea rows="4" cols=50 id="cypher"></textarea><br> -->
+    From : <input type="text" id="from"/>&nbsp;&nbsp;&nbsp;To : <input type="text" id="to"/><br/>
+    <input type="submit" value="Submit" id="reload">
+    <input type="submit" value="Stabilize" id="stabilize">
+    <br/>
+    Our requirement is that we don’t travel more than 250km per day so that we have time and energy left to act a tourist and explore cities.
+</center>
+
+</body>
+
+<script>
+    $("#reload").click(function() {
+        var from = $("#from").val();
+        var to = $("#to").val();
+        if (from.length > 3 && to.length > 3) {
+            var cypher =  "MATCH (start:City{name:'"+ from +"'}),(end:City{name:'" + to + "'}) " +
+                                "CALL algo.shortestPath.astar.stream(start, end, 'distance', " +
+                                "'latitude','longitude',{ " +
+                                "nodeQuery:'City',relationshipQuery:'LINK',direction:'BOTH'}) " +
+                                "YIELD nodeId, cost " +
+                                "MATCH (n) where id(n)=nodeId " +
+                                "WITH collect(nodeId) as nodes " +
+                                "UNWIND range(0, length(nodes)-2) as index " +
+                                "MATCH p=(c1:City)-[:LINK]-(c2:City) " +
+                                "WHERE id(c1)=nodes[index] AND id(c2)=nodes[index + 1] " +
+                                "RETURN p";
+            viz.renderWithCypher(cypher);
+        } else {
+            console.log("reload");
+            viz.reload();
+        }
+    });
+    $("#stabilize").click(function() {
+        viz.stabilize();
+    })
+</script>
+</html>
